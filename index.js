@@ -1,75 +1,82 @@
-  import fetch from 'node-fetch'
-  import { Client, Databases, Query } from 'node-appwrite'
+import { Client, Databases, Query, ID } from 'node-appwrite'
 
-  export default async ({ req, res }) => {
+export default async ({ req, res }) => {
 
-    // ✅ CORS headers
-    const headers = {
-      'Access-Control-Allow-Origin': '*', // change in prod
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  }
 
-    // ✅ Handle preflight
-    if (req.method === 'OPTIONS') {
-      return res.send('', 204, headers)
-    }
+  if (req.method === 'OPTIONS') {
+    return res.send('', 204, headers)
+  }
 
+  try {
+    const client = new Client()
+      .setEndpoint(process.env.APPWRITE_ENDPOINT)
+      .setProject(process.env.APPWRITE_PROJECT_ID)
+      .setKey(process.env.APPWRITE_API_KEY)
+
+    const db = new Databases(client)
+
+    // ✅ safe body parse
+    let body = {}
     try {
-      const client = new Client()
-        .setEndpoint(process.env.APPWRITE_ENDPOINT)
-        .setProject(process.env.APPWRITE_PROJECT_ID)
-        .setKey(process.env.APPWRITE_API_KEY)
+      body = typeof req.body === 'string'
+        ? JSON.parse(req.body)
+        : req.body || {}
+    } catch {
+      return res.json({ error: 'Invalid JSON body' }, 400, headers)
+    }
 
-      const db = new Databases(client)
+    const { userId, prompt } = body
 
-      // ✅ Safe body parse
-      const body = JSON.parse(req.body || '{}')
-      const { userId, prompt } = body
+    if (!userId || !prompt) {
+      return res.json({ error: 'Missing userId or prompt' }, 400, headers)
+    }
 
-      if (!userId || !prompt) {
-        return res.json({ error: 'Missing userId or prompt' }, 400, headers)
-      }
+    // get user meta
+    const metaRes = await db.listDocuments(
+      process.env.DB_ID,
+      process.env.USER_META_COLLECTION,
+      [Query.equal('userId', userId)]
+    )
 
-      // ✅ Get user meta
-      const metaRes = await db.listDocuments(
+    if (!metaRes.documents.length) {
+      return res.json({ error: 'User meta not found' }, 404, headers)
+    }
+
+    let meta = metaRes.documents[0]
+
+    // reset daily credits
+    const today = new Date().toDateString()
+    const last = new Date(meta.lastReset).toDateString()
+
+    if (today !== last) {
+      meta = await db.updateDocument(
         process.env.DB_ID,
         process.env.USER_META_COLLECTION,
-        [Query.equal('userId', userId)]
+        meta.$id,
+        {
+          credits: meta.plan === 'pro' ? 100 : 10,
+          lastReset: new Date().toISOString()
+        }
       )
+    }
 
-      let meta = metaRes.documents[0]
+    // check credits
+    if (meta.credits <= 0) {
+      return res.json({
+        error: 'Daily limit reached. Upgrade to Pro.',
+        upgradeRequired: true
+      }, 403, headers)
+    }
 
-      // ❗ Prevent crash if not found
-      if (!meta) {
-        return res.json({ error: 'User meta not found' }, 404, headers)
-      }
-
-      // ✅ Reset daily credits
-      const today = new Date().toDateString()
-      const last = new Date(meta.lastReset).toDateString()
-
-      if (today !== last) {
-        const newCredits = meta.plan === 'pro' ? 100 : 10
-
-        meta = await db.updateDocument(
-          process.env.DB_ID,
-          process.env.USER_META_COLLECTION,
-          meta.$id,
-          {
-            credits: newCredits,
-            lastReset: new Date().toISOString()
-          }
-        )
-      }
-
-      // ✅ Check credits
-      if (meta.credits <= 0) {
-        return res.json({ error: 'Daily limit reached' }, 403, headers)
-      }
-
-      // ✅ Call OpenRouter
-      const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // ✅ use globalThis.fetch — no node-fetch needed
+    const aiRes = await globalThis.fetch(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -79,44 +86,24 @@
           model: 'openai/gpt-4o-mini',
           messages: [{ role: 'user', content: prompt }]
         })
-      })
+      }
+    )
 
-      const data = await aiRes.json()
+    const aiData = await aiRes.json()
+    const output = aiData?.choices?.[0]?.message?.content || 'No response generated'
 
-      const output =
-        data?.choices?.[0]?.message?.content || 'No response generated'
+    const updatedCredits = Math.max(meta.credits - 1, 0)
 
-      // ❗ Prevent negative credits
-      const updatedCredits = Math.max(meta.credits - 1, 0)
+    await db.updateDocument(
+      process.env.DB_ID,
+      process.env.USER_META_COLLECTION,
+      meta.$id,
+      { credits: updatedCredits }
+    )
 
-      await db.updateDocument(
-        process.env.DB_ID,
-        process.env.USER_META_COLLECTION,
-        meta.$id,
-        {
-          credits: updatedCredits
-        }
-      )
+    return res.json({ output, creditsLeft: updatedCredits }, 200, headers)
 
-      // ✅ Final response with headers
-      return res.json(
-        {
-          output,
-          creditsLeft: updatedCredits
-        },
-        200,
-        headers
-      )
-
-    } catch (err) {
-      return res.json(
-        {
-          error: err.message || 'Server error'
-        },
-        500,
-        {
-          'Access-Control-Allow-Origin': '*'
-        }
-      )
-    }
+  } catch (err) {
+    return res.json({ error: err.message || 'Server error' }, 500, headers)
   }
+}
