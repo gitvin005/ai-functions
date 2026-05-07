@@ -1,5 +1,5 @@
   import fetch from 'node-fetch'
-  import { Client, Databases, Query } from 'appwrite'
+  import { Client, Databases, Query } from 'node-appwrite'
 
   export default async ({ req, res }) => {
 

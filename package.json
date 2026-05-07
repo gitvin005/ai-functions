@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "appwrite": "^25.0.0",
+    "node-appwrite": "^24.0.0",
     "node-fetch": "^3.3.2"
   }
 }
