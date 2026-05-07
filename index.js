@@ -5,7 +5,7 @@ export default async ({ req, res }) => {
 
   // ✅ CORS headers
   const headers = {
-    'Access-Control-Allow-Origin': 'https://visaya-ai.netlify.app/', // change in prod
+    'Access-Control-Allow-Origin': 'https://visaya-ai.netlify.app', // change in prod
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   }
