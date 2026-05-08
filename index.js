@@ -182,7 +182,7 @@ export default async ({ req, res }) => {
         process.env.DB_ID,
         process.env.HISTORY_COLLECTION,
         ID.unique(),
-        { userId, prompt, output, title, type: contentType, createdAt }
+        { userId: userId, prompt: prompt, output: output, title: title, type: contentType, $createdAt: createdAt }
       )
     ])
 
