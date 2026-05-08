@@ -114,7 +114,7 @@ export default async ({ req, res }) => {
       process.env.HISTORY_COLLECTION,
       [
         Query.equal('userId', userId),
-        Query.greaterThan('createdAt', oneMinuteAgo)
+        Query.greaterThan('$createdAt', oneMinuteAgo)
       ]
     )
 
@@ -182,7 +182,7 @@ export default async ({ req, res }) => {
         process.env.DB_ID,
         process.env.HISTORY_COLLECTION,
         ID.unique(),
-        { userId: userId, prompt: prompt, output: output, title: title, type: contentType, $createdAt: createdAt }
+        { userId: userId, prompt: prompt, output: output, title: title, type: contentType }
       )
     ])
 
